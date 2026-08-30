@@ -34,7 +34,26 @@ export const experimentsApi = {
   create: (data: any) => request("/api/v1/experiments", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: any) => request(`/api/v1/experiments/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request(`/api/v1/experiments/${id}`, { method: "DELETE" }),
+  complete: (id: number) => request(`/api/v1/experiments/${id}/complete`, { method: "POST" }),
   variants: (id: number) => request(`/api/v1/experiments/${id}/variants`),
+  // Dataset management per experiment
+  getDataset: (experimentId: number) => request(`/api/v1/experiments/${experimentId}/dataset`),
+  uploadDataset: (experimentId: number, file: File) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    return fetch(`${API_BASE}/api/v1/experiments/${experimentId}/upload-dataset`, {
+      method: "POST",
+      body: formData,
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+    }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || "Upload failed") })
+      return r.json()
+    })
+  },
+  attachDataset: (experimentId: number, datasetId: number) =>
+    request(`/api/v1/experiments/${experimentId}/attach-dataset/${datasetId}`, { method: "POST" }),
+  detachDataset: (experimentId: number) =>
+    request(`/api/v1/experiments/${experimentId}/detach-dataset`, { method: "DELETE" }),
 }
 
 // Datasets
@@ -47,12 +66,15 @@ export const datasetsApi = {
   upload: (file: File, experimentId?: number) => {
     const formData = new FormData()
     formData.append("file", file)
-    if (experimentId) formData.append("experiment_id", String(experimentId))
-    return fetch(`${API_BASE}/api/v1/datasets/upload`, {
+    const qs = experimentId ? `?experiment_id=${experimentId}` : ""
+    return fetch(`${API_BASE}/api/v1/datasets/upload${qs}`, {
       method: "POST",
       body: formData,
       headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-    }).then((r) => r.json())
+    }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || "Upload failed") })
+      return r.json()
+    })
   },
   preview: (id: number, page = 1, pageSize = 50) => request(`/api/v1/datasets/${id}/preview?page=${page}&page_size=${pageSize}`),
   quality: (id: number) => request(`/api/v1/datasets/${id}/quality`),
@@ -69,10 +91,23 @@ export const analyticsApi = {
   results: (experimentId: number) => request(`/api/v1/analytics/results/${experimentId}`),
   segments: (experimentId: number) => request(`/api/v1/analytics/segments/${experimentId}`),
   health: (experimentId: number) => request(`/api/v1/analytics/health/${experimentId}`),
-  business: (experimentId: number) => request(`/api/v1/analytics/business/${experimentId}`),
+  business: (experimentId: number, params?: { monthlyRevenuePerUser?: number; dailyUsers?: number }) => {
+    const qs = params ? "?" + new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v != null)
+        .map(([k, v]) => [
+          k === "monthlyRevenuePerUser" ? "monthly_revenue_per_user"
+            : k === "dailyUsers" ? "daily_users"
+            : k,
+          String(v),
+        ])
+    ).toString() : ""
+    return request(`/api/v1/analytics/business/${experimentId}${qs}`)
+  },
   copilot: (data: { query: string; experiment_id: number }) => request("/api/v1/analytics/copilot", { method: "POST", body: JSON.stringify(data) }),
   overview: () => request("/api/v1/analytics/overview"),
   monitor: () => request("/api/v1/analytics/monitor"),
+  insights: () => request("/api/v1/analytics/insights"),
 }
 
 // Reports
@@ -81,5 +116,21 @@ export const reportsApi = {
   create: (data: { experiment_id: number; title: string; report_type?: string }) => request("/api/v1/reports", { method: "POST", body: JSON.stringify(data) }),
   get: (id: number) => request(`/api/v1/reports/${id}`),
   downloadUrl: (id: number) => `${API_BASE}/api/v1/reports/${id}/download`,
+  download: async (id: number, filename: string) => {
+    const token = localStorage.getItem("token")
+    const res = await fetch(`${API_BASE}/api/v1/reports/${id}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) throw new Error("Download failed")
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    a.remove()
+  },
   delete: (id: number) => request(`/api/v1/reports/${id}`, { method: "DELETE" }),
 }

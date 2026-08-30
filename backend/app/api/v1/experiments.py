@@ -1,9 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+import os
+import json
+import uuid
+import pandas as pd
+import numpy as np
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.db.session import get_db
-from app.models.experiment import Experiment, ExperimentVariant
+from app.models.experiment import Experiment, ExperimentVariant, ExperimentStatus
+from app.models.dataset import Dataset, DatasetColumn
 from app.models.activity import Activity
+from app.models.user import User
 from app.schemas.experiment import (
     ExperimentCreate,
     ExperimentUpdate,
@@ -11,9 +18,14 @@ from app.schemas.experiment import (
     ExperimentListResponse,
     VariantResponse,
 )
-from app.api.deps import get_current_user, get_optional_user
+from app.schemas.dataset import DatasetResponse
+from app.api.deps import get_current_user
+from app.core.config import settings
 
 router = APIRouter(prefix="/experiments", tags=["Experiments"])
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.get("", response_model=ExperimentListResponse)
@@ -24,9 +36,9 @@ async def list_experiments(
     experiment_type: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user=Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
 ):
-    query = db.query(Experiment)
+    query = db.query(Experiment).filter(Experiment.user_id == current_user.id)
 
     if status_filter:
         query = query.filter(Experiment.status == status_filter)
@@ -52,8 +64,15 @@ async def list_experiments(
 
 
 @router.get("/{experiment_id}", response_model=ExperimentResponse)
-async def get_experiment(experiment_id: int, db: Session = Depends(get_db)):
-    experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+async def get_experiment(
+    experiment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    experiment = db.query(Experiment).filter(
+        Experiment.id == experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
     return ExperimentResponse.model_validate(experiment)
@@ -63,13 +82,13 @@ async def get_experiment(experiment_id: int, db: Session = Depends(get_db)):
 async def create_experiment(
     data: ExperimentCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
 ):
     experiment = Experiment(
         name=data.name,
         description=data.description,
         hypothesis=data.hypothesis,
-        owner=data.owner,
+        owner=data.owner or current_user.full_name or current_user.username,
         experiment_type=data.experiment_type,
         primary_metric=data.primary_metric,
         secondary_metrics=data.secondary_metrics,
@@ -79,7 +98,7 @@ async def create_experiment(
         treatment_allocation=data.treatment_allocation,
         target_audience=data.target_audience,
         expected_uplift=data.expected_uplift,
-        user_id=current_user.id if current_user else None,
+        user_id=current_user.id,
     )
     db.add(experiment)
     db.flush()
@@ -96,7 +115,6 @@ async def create_experiment(
             )
             db.add(variant)
     else:
-        # Default control/treatment
         db.add(ExperimentVariant(
             experiment_id=experiment.id,
             name="Control",
@@ -112,13 +130,12 @@ async def create_experiment(
             is_control=0,
         ))
 
-    # Log activity
     db.add(Activity(
         action="experiment_created",
         entity_type="experiment",
         entity_id=experiment.id,
         entity_name=experiment.name,
-        user_id=current_user.id if current_user else None,
+        user_id=current_user.id,
     ))
 
     db.commit()
@@ -131,8 +148,12 @@ async def update_experiment(
     experiment_id: int,
     data: ExperimentUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+    experiment = db.query(Experiment).filter(
+        Experiment.id == experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
@@ -145,6 +166,34 @@ async def update_experiment(
         entity_type="experiment",
         entity_id=experiment.id,
         entity_name=experiment.name,
+        user_id=current_user.id,
+    ))
+    db.commit()
+    db.refresh(experiment)
+    return ExperimentResponse.model_validate(experiment)
+
+
+@router.post("/{experiment_id}/complete", response_model=ExperimentResponse)
+async def mark_experiment_completed(
+    experiment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Mark an experiment as completed."""
+    experiment = db.query(Experiment).filter(
+        Experiment.id == experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    experiment.status = ExperimentStatus.COMPLETED.value
+    db.add(Activity(
+        action="experiment_completed",
+        entity_type="experiment",
+        entity_id=experiment.id,
+        entity_name=experiment.name,
+        user_id=current_user.id,
     ))
     db.commit()
     db.refresh(experiment)
@@ -152,8 +201,15 @@ async def update_experiment(
 
 
 @router.delete("/{experiment_id}", status_code=204)
-async def delete_experiment(experiment_id: int, db: Session = Depends(get_db)):
-    experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+async def delete_experiment(
+    experiment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    experiment = db.query(Experiment).filter(
+        Experiment.id == experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
     db.delete(experiment)
@@ -161,11 +217,229 @@ async def delete_experiment(experiment_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{experiment_id}/variants", response_model=list[VariantResponse])
-async def get_variants(experiment_id: int, db: Session = Depends(get_db)):
-    experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+async def get_variants(
+    experiment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    experiment = db.query(Experiment).filter(
+        Experiment.id == experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
     variants = db.query(ExperimentVariant).filter(
         ExperimentVariant.experiment_id == experiment_id
     ).all()
     return [VariantResponse.model_validate(v) for v in variants]
+
+
+# ─── Dataset attachment endpoints ──────────────────────────────────────────────
+
+
+@router.get("/{experiment_id}/dataset", response_model=DatasetResponse)
+async def get_experiment_dataset(
+    experiment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the dataset currently attached to an experiment."""
+    experiment = db.query(Experiment).filter(
+        Experiment.id == experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    dataset = (
+        db.query(Dataset)
+        .filter(Dataset.experiment_id == experiment_id)
+        .order_by(Dataset.created_at.desc())
+        .first()
+    )
+    if not dataset:
+        raise HTTPException(status_code=404, detail="No dataset attached to this experiment")
+
+    return DatasetResponse.model_validate(dataset)
+
+
+@router.post("/{experiment_id}/upload-dataset", response_model=DatasetResponse, status_code=201)
+async def upload_dataset_to_experiment(
+    experiment_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a CSV and attach it directly to an experiment."""
+    experiment = db.query(Experiment).filter(
+        Experiment.id == experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only CSV files are supported")
+
+    content = await file.read()
+    file_size = len(content)
+    max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if file_size > max_size:
+        raise HTTPException(status_code=400, detail=f"File exceeds {settings.MAX_UPLOAD_SIZE_MB}MB limit")
+
+    # Save file
+    unique_filename = f"{uuid.uuid4()}_{file.filename}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # Parse CSV
+    try:
+        df = pd.read_csv(file_path)
+    except Exception:
+        os.remove(file_path)
+        raise HTTPException(status_code=400, detail="Failed to parse CSV")
+
+    # Create dataset record attached to experiment
+    dataset = Dataset(
+        experiment_id=experiment_id,
+        filename=unique_filename,
+        original_filename=file.filename,
+        file_path=file_path,
+        file_size_bytes=file_size,
+        row_count=len(df),
+        column_count=len(df.columns),
+        user_id=current_user.id,
+        status="uploaded",
+    )
+    db.add(dataset)
+    db.flush()
+
+    # Analyze columns
+    for col in df.columns:
+        dtype = str(df[col].dtype)
+        if "int" in dtype or "float" in dtype:
+            col_type = "numeric"
+        elif "datetime" in dtype:
+            col_type = "datetime"
+        else:
+            col_type = "categorical"
+
+        null_count = int(df[col].isnull().sum())
+        null_pct = round(null_count / len(df) * 100, 2) if len(df) > 0 else 0.0
+        unique_count = int(df[col].nunique())
+
+        # Auto-detect column mapping
+        mapped_to = None
+        col_lower = col.lower()
+        if col_lower in ("user_id", "user", "userid", "uid", "participant_id"):
+            mapped_to = "user_id"
+        elif col_lower in ("variant", "group", "arm", "treatment", "assignment"):
+            mapped_to = "variant"
+        elif col_lower in ("timestamp", "date", "time", "created_at", "event_time"):
+            mapped_to = "timestamp"
+        elif col_lower in ("conversion", "converted", "did_convert", "is_convert"):
+            mapped_to = "conversion"
+        elif col_lower in ("revenue", "amount", "order_value", "purchase_amount"):
+            mapped_to = "revenue"
+        elif col_lower in ("segment", "user_segment", "cohort"):
+            mapped_to = "segment"
+        elif col_lower in ("metric", "value", "score", "measure"):
+            mapped_to = "metric"
+
+        db.add(DatasetColumn(
+            dataset_id=dataset.id,
+            name=col,
+            data_type=col_type,
+            null_count=null_count,
+            null_percentage=null_pct,
+            unique_count=unique_count,
+            is_mapped=mapped_to is not None,
+            mapped_to=mapped_to,
+        ))
+
+    db.add(Activity(
+        action="dataset_uploaded",
+        entity_type="dataset",
+        entity_id=dataset.id,
+        entity_name=file.filename,
+        details=f"{len(df)} rows, {len(df.columns)} columns",
+        user_id=current_user.id,
+    ))
+
+    db.commit()
+    db.refresh(dataset)
+    return DatasetResponse.model_validate(dataset)
+
+
+@router.post("/{experiment_id}/attach-dataset/{dataset_id}", response_model=DatasetResponse)
+async def attach_dataset_to_experiment(
+    experiment_id: int,
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Attach an existing dataset (from Data Lab) to this experiment."""
+    experiment = db.query(Experiment).filter(
+        Experiment.id == experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    dataset = db.query(Dataset).filter(
+        Dataset.id == dataset_id,
+        Dataset.user_id == current_user.id,
+    ).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Attach dataset to experiment
+    dataset.experiment_id = experiment_id
+    db.add(Activity(
+        action="dataset_attached",
+        entity_type="experiment",
+        entity_id=experiment_id,
+        entity_name=experiment.name,
+        details=f"Attached dataset: {dataset.original_filename}",
+        user_id=current_user.id,
+    ))
+    db.commit()
+    db.refresh(dataset)
+    return DatasetResponse.model_validate(dataset)
+
+
+@router.delete("/{experiment_id}/detach-dataset", status_code=200)
+async def detach_dataset_from_experiment(
+    experiment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove the dataset association from an experiment (does not delete the dataset)."""
+    experiment = db.query(Experiment).filter(
+        Experiment.id == experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    dataset = (
+        db.query(Dataset)
+        .filter(Dataset.experiment_id == experiment_id)
+        .order_by(Dataset.created_at.desc())
+        .first()
+    )
+    if not dataset:
+        raise HTTPException(status_code=404, detail="No dataset attached")
+
+    dataset.experiment_id = None
+    db.add(Activity(
+        action="dataset_detached",
+        entity_type="experiment",
+        entity_id=experiment_id,
+        entity_name=experiment.name,
+        details=f"Detached dataset: {dataset.original_filename}",
+        user_id=current_user.id,
+    ))
+    db.commit()
+    return {"message": "Dataset detached successfully"}

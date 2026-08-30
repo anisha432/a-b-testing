@@ -16,8 +16,11 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add backend dir to path (app lives in backend/app/)
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_backend_dir = os.path.join(os.path.dirname(_script_dir), "backend")
+sys.path.insert(0, _backend_dir)
+os.chdir(_backend_dir)
 
 from app.db.session import SessionLocal, engine, Base
 from app.models.user import User

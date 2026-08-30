@@ -36,7 +36,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    access_token = create_access_token(data={"sub": str(user.id), "email": user.email})
     return Token(
         access_token=access_token,
         user=UserResponse.model_validate(user),
@@ -51,7 +51,7 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
-    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    access_token = create_access_token(data={"sub": str(user.id), "email": user.email})
     return Token(
         access_token=access_token,
         user=UserResponse.model_validate(user),

@@ -9,16 +9,20 @@ from app.models.experiment_result import ExperimentResult
 from app.models.segment_result import SegmentResult
 from app.models.experiment_alert import ExperimentAlert
 from app.models.activity import Activity
+from app.models.user import User
 from app.schemas.report import ReportCreate, ReportResponse
 from app.services.report_service import generate_experiment_report, REPORTS_DIR
-from app.api.deps import get_optional_user
+from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 @router.get("", response_model=list[ReportResponse])
-async def list_reports(db: Session = Depends(get_db)):
-    reports = db.query(Report).order_by(Report.created_at.desc()).limit(50).all()
+async def list_reports(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    reports = db.query(Report).filter(Report.user_id == current_user.id).order_by(Report.created_at.desc()).limit(50).all()
     return [ReportResponse.model_validate(r) for r in reports]
 
 
@@ -26,9 +30,12 @@ async def list_reports(db: Session = Depends(get_db)):
 async def create_report(
     data: ReportCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
 ):
-    experiment = db.query(Experiment).filter(Experiment.id == data.experiment_id).first()
+    experiment = db.query(Experiment).filter(
+        Experiment.id == data.experiment_id,
+        Experiment.user_id == current_user.id,
+    ).first()
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
@@ -37,13 +44,12 @@ async def create_report(
         title=data.title,
         report_type=data.report_type,
         status="generating",
-        user_id=current_user.id if current_user else None,
+        user_id=current_user.id,
     )
     db.add(report)
     db.commit()
     db.refresh(report)
 
-    # Gather data for report
     results = db.query(ExperimentResult).filter(ExperimentResult.experiment_id == data.experiment_id).all()
     segments = db.query(SegmentResult).filter(SegmentResult.experiment_id == data.experiment_id).all()
     alerts = db.query(ExperimentAlert).filter(ExperimentAlert.experiment_id == data.experiment_id).all()
@@ -115,7 +121,6 @@ async def create_report(
                 "recommendation": "Consider rolling out the treatment" if r.relative_uplift > 0 else "Investigate treatment issues",
             })
 
-    # Generate PDF
     filename = f"report_{experiment.id}_{report.id}.pdf"
     output_path = os.path.join(REPORTS_DIR, filename)
 
@@ -142,7 +147,7 @@ async def create_report(
         entity_type="report",
         entity_id=report.id,
         entity_name=report.title,
-        user_id=current_user.id if current_user else None,
+        user_id=current_user.id,
     ))
     db.commit()
     db.refresh(report)
@@ -150,16 +155,30 @@ async def create_report(
 
 
 @router.get("/{report_id}", response_model=ReportResponse)
-async def get_report(report_id: int, db: Session = Depends(get_db)):
-    report = db.query(Report).filter(Report.id == report_id).first()
+async def get_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    report = db.query(Report).filter(
+        Report.id == report_id,
+        Report.user_id == current_user.id,
+    ).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return ReportResponse.model_validate(report)
 
 
 @router.get("/{report_id}/download")
-async def download_report(report_id: int, db: Session = Depends(get_db)):
-    report = db.query(Report).filter(Report.id == report_id).first()
+async def download_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    report = db.query(Report).filter(
+        Report.id == report_id,
+        Report.user_id == current_user.id,
+    ).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     if not report.file_path or not os.path.exists(report.file_path):
@@ -172,8 +191,15 @@ async def download_report(report_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{report_id}", status_code=204)
-async def delete_report(report_id: int, db: Session = Depends(get_db)):
-    report = db.query(Report).filter(Report.id == report_id).first()
+async def delete_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    report = db.query(Report).filter(
+        Report.id == report_id,
+        Report.user_id == current_user.id,
+    ).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     if report.file_path and os.path.exists(report.file_path):

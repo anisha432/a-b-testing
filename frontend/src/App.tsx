@@ -14,12 +14,24 @@ import { MonitorPage } from "./pages/MonitorPage"
 import { ReportsPage } from "./pages/ReportsPage"
 import { SettingsPage } from "./pages/SettingsPage"
 import { LoginPage } from "./pages/LoginPage"
+import { RegisterPage } from "./pages/RegisterPage"
 import { AuthProvider, useAuth } from "./hooks/useAuth"
+import { AnalysisProvider } from "./contexts/AnalysisContext"
 
 const queryClient = new QueryClient()
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-slate-500">Loading...</p>
+        </div>
+      </div>
+    )
+  }
   if (!user) return <Navigate to="/login" replace />
   return <>{children}</>
 }
@@ -31,11 +43,14 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
             <Route
               path="/"
               element={
                 <ProtectedRoute>
-                  <AppLayout />
+                  <AnalysisProvider>
+                    <AppLayout />
+                  </AnalysisProvider>
                 </ProtectedRoute>
               }
             >

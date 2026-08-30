@@ -34,17 +34,23 @@ pgdata/
 .DS_Store
 Thumbs.db
 
-# Uploads
-backend/uploads/
-backend/reports/
+# Uploads & generated files
+backend/app/uploads/
+backend/app/reports/
+uploads/
+*.pdf
+!docs/*.pdf
 
 # Logs
 *.log
 
-# Test
+# Test artifacts
 .coverage
 htmlcov/
 .pytest_cache/
+*.csv
+!scripts/*.csv
+!docs/*.csv
 
 # Docker
 docker-compose.override.yml

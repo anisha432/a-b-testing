@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 import pandas as pd
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
@@ -9,8 +10,9 @@ from app.db.session import get_db
 from app.models.dataset import Dataset, DatasetColumn
 from app.models.experiment import Experiment
 from app.models.activity import Activity
+from app.models.user import User
 from app.schemas.dataset import DatasetResponse, DataQualityResponse, DataQualityWarning, DatasetPreview, ColumnMappingUpdate
-from app.api.deps import get_optional_user
+from app.api.deps import get_current_user
 from app.core.config import settings
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
@@ -24,33 +26,28 @@ async def upload_dataset(
     file: UploadFile = File(...),
     experiment_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    current_user=Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
 ):
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
-    # Read file content
     content = await file.read()
     file_size = len(content)
     max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     if file_size > max_size:
         raise HTTPException(status_code=400, detail=f"File exceeds {settings.MAX_UPLOAD_SIZE_MB}MB limit")
 
-    # Save file
-    import uuid
     unique_filename = f"{uuid.uuid4()}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, unique_filename)
     with open(file_path, "wb") as f:
         f.write(content)
 
-    # Parse CSV
     try:
         df = pd.read_csv(file_path)
     except Exception as e:
         os.remove(file_path)
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
 
-    # Create dataset record
     dataset = Dataset(
         experiment_id=experiment_id,
         filename=unique_filename,
@@ -59,13 +56,12 @@ async def upload_dataset(
         file_size_bytes=file_size,
         row_count=len(df),
         column_count=len(df.columns),
-        user_id=current_user.id if current_user else None,
+        user_id=current_user.id,
         status="uploaded",
     )
     db.add(dataset)
     db.flush()
 
-    # Analyze columns
     for col in df.columns:
         dtype = str(df[col].dtype)
         if "int" in dtype or "float" in dtype:
@@ -79,7 +75,6 @@ async def upload_dataset(
         null_pct = round(null_count / len(df) * 100, 2) if len(df) > 0 else 0.0
         unique_count = int(df[col].nunique())
 
-        # Auto-detect column mapping
         mapped_to = None
         col_lower = col.lower()
         if col_lower in ("user_id", "user", "userid", "uid", "participant_id"):
@@ -97,7 +92,7 @@ async def upload_dataset(
         elif col_lower in ("metric", "value", "score", "measure"):
             mapped_to = "metric"
 
-        db_column = DatasetColumn(
+        db.add(DatasetColumn(
             dataset_id=dataset.id,
             name=col,
             data_type=col_type,
@@ -106,8 +101,7 @@ async def upload_dataset(
             unique_count=unique_count,
             is_mapped=mapped_to is not None,
             mapped_to=mapped_to,
-        )
-        db.add(db_column)
+        ))
 
     db.add(Activity(
         action="dataset_uploaded",
@@ -115,7 +109,7 @@ async def upload_dataset(
         entity_id=dataset.id,
         entity_name=file.filename,
         details=f"{len(df)} rows, {len(df.columns)} columns",
-        user_id=current_user.id if current_user else None,
+        user_id=current_user.id,
     ))
 
     db.commit()
@@ -127,8 +121,9 @@ async def upload_dataset(
 async def list_datasets(
     experiment_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    query = db.query(Dataset)
+    query = db.query(Dataset).filter(Dataset.user_id == current_user.id)
     if experiment_id:
         query = query.filter(Dataset.experiment_id == experiment_id)
     datasets = query.order_by(Dataset.created_at.desc()).limit(50).all()
@@ -136,8 +131,15 @@ async def list_datasets(
 
 
 @router.get("/{dataset_id}", response_model=DatasetResponse)
-async def get_dataset(dataset_id: int, db: Session = Depends(get_db)):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+async def get_dataset(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = db.query(Dataset).filter(
+        Dataset.id == dataset_id,
+        Dataset.user_id == current_user.id,
+    ).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return DatasetResponse.model_validate(dataset)
@@ -149,8 +151,12 @@ async def preview_dataset(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    dataset = db.query(Dataset).filter(
+        Dataset.id == dataset_id,
+        Dataset.user_id == current_user.id,
+    ).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -175,8 +181,15 @@ async def preview_dataset(
 
 
 @router.get("/{dataset_id}/quality", response_model=DataQualityResponse)
-async def get_data_quality(dataset_id: int, db: Session = Depends(get_db)):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+async def get_data_quality(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = db.query(Dataset).filter(
+        Dataset.id == dataset_id,
+        Dataset.user_id == current_user.id,
+    ).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -190,7 +203,6 @@ async def get_data_quality(dataset_id: int, db: Session = Depends(get_db)):
     missing_total = int(df.isnull().sum().sum())
     duplicate_count = int(df.duplicated().sum())
 
-    # Outlier detection using IQR
     outliers = 0
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     for col in numeric_cols:
@@ -204,7 +216,6 @@ async def get_data_quality(dataset_id: int, db: Session = Depends(get_db)):
     warnings = []
     recommendations = []
 
-    # Check missing values
     if missing_total > 0:
         missing_pct = round(missing_total / total_cells * 100, 1)
         severity = "critical" if missing_pct > 10 else "warning"
@@ -214,7 +225,6 @@ async def get_data_quality(dataset_id: int, db: Session = Depends(get_db)):
             message=f"{missing_total} missing values ({missing_pct}% of all cells)",
         ))
 
-    # Check duplicates
     if duplicate_count > 0:
         dup_pct = round(duplicate_count / total_rows * 100, 1)
         warnings.append(DataQualityWarning(
@@ -223,7 +233,6 @@ async def get_data_quality(dataset_id: int, db: Session = Depends(get_db)):
             message=f"{duplicate_count} duplicate rows ({dup_pct}%)",
         ))
 
-    # Check outliers
     if outliers > 0:
         warnings.append(DataQualityWarning(
             category="outliers",
@@ -231,7 +240,6 @@ async def get_data_quality(dataset_id: int, db: Session = Depends(get_db)):
             message=f"{outliers} outlier values detected using IQR method",
         ))
 
-    # Check column-level issues
     for col in df.columns:
         null_pct = df[col].isnull().sum() / total_rows * 100
         if null_pct > 20:
@@ -242,7 +250,6 @@ async def get_data_quality(dataset_id: int, db: Session = Depends(get_db)):
                 column=col,
             ))
 
-    # Recommendations
     if missing_total > 0:
         recommendations.append("Consider imputing or removing rows with missing values before analysis.")
     if duplicate_count > 0:
@@ -254,7 +261,6 @@ async def get_data_quality(dataset_id: int, db: Session = Depends(get_db)):
     if total_rows < 1000:
         recommendations.append("For reliable A/B test results, aim for at least 1000 observations per variant.")
 
-    # Calculate quality score
     score = 100.0
     if total_cells > 0:
         score -= (missing_total / total_cells) * 30
@@ -264,7 +270,6 @@ async def get_data_quality(dataset_id: int, db: Session = Depends(get_db)):
         score -= min(15, (outliers / total_cells) * 100)
     score = max(0, min(100, round(score)))
 
-    # Update dataset quality score
     dataset.quality_score = score
     db.commit()
 
@@ -284,8 +289,12 @@ async def update_column_mapping(
     dataset_id: int,
     data: ColumnMappingUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    dataset = db.query(Dataset).filter(
+        Dataset.id == dataset_id,
+        Dataset.user_id == current_user.id,
+    ).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -305,8 +314,15 @@ async def update_column_mapping(
 
 
 @router.delete("/{dataset_id}", status_code=204)
-async def delete_dataset(dataset_id: int, db: Session = Depends(get_db)):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+async def delete_dataset(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = db.query(Dataset).filter(
+        Dataset.id == dataset_id,
+        Dataset.user_id == current_user.id,
+    ).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     if os.path.exists(dataset.file_path):

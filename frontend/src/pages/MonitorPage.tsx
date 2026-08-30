@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { analyticsApi } from "../services/api"
-import { Monitor, AlertTriangle, CheckCircle, Activity, Clock, Shield } from "lucide-react"
+import { Monitor, AlertTriangle, Activity, Clock, Shield } from "lucide-react"
 
 export function MonitorPage() {
   const { data: monitor, isLoading } = useQuery({
@@ -31,6 +31,15 @@ export function MonitorPage() {
       case "warning": return "🟡"
       case "info": return "🔵"
       default: return "🟢"
+    }
+  }
+
+  const getFreshnessLabel = (freshness: string) => {
+    switch (freshness) {
+      case "fresh": return { label: "Fresh", color: "bg-emerald-100 text-emerald-700" }
+      case "aging": return { label: "Aging", color: "bg-amber-100 text-amber-700" }
+      case "stale": return { label: "Stale", color: "bg-red-100 text-red-700" }
+      default: return { label: "No Data", color: "bg-slate-100 text-slate-500" }
     }
   }
 
@@ -104,21 +113,32 @@ export function MonitorPage() {
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h3 className="text-sm font-semibold text-slate-900 mb-4">Experiment Status</h3>
         <div className="space-y-3">
-          {experiments.map((exp: any) => (
-            <div key={exp.experiment_id} className={`flex items-center gap-4 p-4 rounded-lg border ${exp.alert_count > 0 ? "border-amber-200 bg-amber-50" : "border-slate-200"}`}>
-              <div className={`w-3 h-3 rounded-full ${exp.status === "running" ? "bg-blue-500 animate-pulse" : "bg-slate-300"}`} />
-              <div className="flex-1">
-                <div className="text-sm font-medium text-slate-900">{exp.experiment_name}</div>
-                <div className="text-xs text-slate-500">Status: {exp.status} · Data: {exp.data_status} · Freshness: {exp.freshness}</div>
+          {experiments.map((exp: any) => {
+            const freshness = getFreshnessLabel(exp.freshness)
+            return (
+              <div key={exp.experiment_id} className={`flex items-center gap-4 p-4 rounded-lg border ${exp.alert_count > 0 ? "border-amber-200 bg-amber-50" : "border-slate-200"}`}>
+                <div className={`w-3 h-3 rounded-full ${exp.status === "running" ? "bg-blue-500 animate-pulse" : "bg-slate-300"}`} />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-slate-900">{exp.experiment_name}</div>
+                  <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                    <span>Status: {exp.status}</span>
+                    <span>·</span>
+                    <span>Data: {exp.data_status}</span>
+                    <span>·</span>
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${freshness.color}`}>
+                      {freshness.label}
+                    </span>
+                  </div>
+                </div>
+                {exp.alert_count > 0 && (
+                  <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">{exp.alert_count} alert(s)</span>
+                )}
+                {exp.alert_count === 0 && (
+                  <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">Healthy</span>
+                )}
               </div>
-              {exp.alert_count > 0 && (
-                <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">{exp.alert_count} alert(s)</span>
-              )}
-              {exp.alert_count === 0 && (
-                <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">Healthy</span>
-              )}
-            </div>
-          ))}
+            )
+          })}
           {experiments.length === 0 && (
             <div className="text-center py-8 text-slate-400 text-sm">No active experiments to monitor</div>
           )}
@@ -128,7 +148,8 @@ export function MonitorPage() {
       {alerts.length === 0 && experiments.length === 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
           <Monitor className="w-10 h-10 mx-auto text-slate-300 mb-3" />
-          <p className="text-slate-500">No active experiments or alerts. Start an experiment to begin monitoring.</p>
+          <p className="text-slate-500 font-medium">No active experiments or alerts</p>
+          <p className="text-slate-400 text-sm mt-1">Start an experiment to begin monitoring.</p>
         </div>
       )}
     </div>

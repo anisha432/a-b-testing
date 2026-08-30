@@ -1,132 +1,95 @@
 import { useQuery } from "@tanstack/react-query"
-import { experimentsApi, analyticsApi } from "../services/api"
-import { Lightbulb, TrendingUp, AlertTriangle, CheckCircle, Info } from "lucide-react"
-import { useState } from "react"
+import { useNavigate } from "react-router-dom"
+import { analyticsApi } from "../services/api"
+import { Lightbulb, TrendingUp, AlertTriangle, CheckCircle, Info, FlaskConical, ArrowRight } from "lucide-react"
 
 export function InsightsPage() {
-  const { data: experiments } = useQuery({
-    queryKey: ["experiments"],
-    queryFn: () => experimentsApi.list({ page_size: "50" }),
+  const navigate = useNavigate()
+  const { data, isLoading } = useQuery({
+    queryKey: ["insights"],
+    queryFn: () => analyticsApi.insights(),
   })
 
-  const exps = experiments?.experiments || []
-  const completedExps = exps.filter((e: any) => e.status === "completed")
-  const runningExps = exps.filter((e: any) => e.status === "running")
+  const insights = data?.insights || []
+  const summary = data?.summary || { total: 0, completed: 0, running: 0, significant: 0 }
 
-  const insights = []
-
-  // Generate cross-experiment insights from data
-  if (completedExps.length > 0) {
-    insights.push({
-      type: "summary",
-      severity: "info",
-      icon: Info,
-      title: `${completedExps.length} experiment(s) completed`,
-      description: "Review results and determine which treatments to roll out.",
-    })
-  }
-  if (runningExps.length > 0) {
-    insights.push({
-      type: "running",
-      severity: "info",
-      icon: TrendingUp,
-      title: `${runningExps.length} experiment(s) currently running`,
-      description: "Monitor these experiments for significant results and health issues.",
-    })
+  const severityConfig: Record<string, { bg: string; border: string; iconColor: string; Icon: any }> = {
+    positive: { bg: "bg-emerald-50", border: "border-emerald-200", iconColor: "text-emerald-600", Icon: CheckCircle },
+    critical: { bg: "bg-red-50", border: "border-red-200", iconColor: "text-red-600", Icon: AlertTriangle },
+    warning: { bg: "bg-amber-50", border: "border-amber-200", iconColor: "text-amber-600", Icon: AlertTriangle },
+    info: { bg: "bg-white", border: "border-slate-200", iconColor: "text-blue-600", Icon: Info },
   }
 
-  // Generate recommendations based on experiment statuses
-  for (const exp of exps) {
-    if (exp.status === "running") {
-      insights.push({
-        type: "experiment",
-        severity: "info",
-        icon: CheckCircle,
-        title: `Experiment "${exp.name}" is active`,
-        description: `Type: ${exp.experiment_type}. Owner: ${exp.owner || "Unknown"}. Run analysis to check for results.`,
-        recommendation: "Navigate to the experiment detail page and click 'Run Analysis'.",
-      })
-    }
-    if (exp.status === "completed") {
-      insights.push({
-        type: "experiment",
-        severity: "positive",
-        icon: CheckCircle,
-        title: `Experiment "${exp.name}" completed`,
-        description: "Review the results, statistical significance, and business impact before making a decision.",
-        recommendation: "Check the experiment detail page for full analysis results.",
-      })
-    }
-    if (exp.status === "paused") {
-      insights.push({
-        type: "experiment",
-        severity: "warning",
-        icon: AlertTriangle,
-        title: `Experiment "${exp.name}" is paused`,
-        description: "This experiment is not collecting data. Consider resuming or archiving it.",
-        recommendation: "Resume the experiment or archive it if no longer relevant.",
-      })
-    }
-    if (exp.status === "draft") {
-      insights.push({
-        type: "experiment",
-        severity: "warning",
-        icon: AlertTriangle,
-        title: `Experiment "${exp.name}" is in draft`,
-        description: "This experiment needs configuration before it can run.",
-        recommendation: "Upload a dataset, map columns, and start the experiment.",
-      })
-    }
-  }
-
-  const iconMap: Record<string, any> = {
-    positive: CheckCircle,
-    warning: AlertTriangle,
-    critical: AlertTriangle,
-    info: Info,
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-3 gap-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-24 bg-white rounded-xl border border-slate-200 animate-pulse" />
+          ))}
+        </div>
+        <div className="space-y-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-20 bg-white rounded-xl border border-slate-200 animate-pulse" />
+          ))}
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Insights</h1>
-        <p className="text-slate-500 text-sm mt-1">AI-generated insights and recommendations across all experiments</p>
+        <p className="text-slate-500 text-sm mt-1">Data-driven insights and recommendations based on your experiment results</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
-          <div className="text-3xl font-bold text-blue-600">{completedExps.length}</div>
-          <div className="text-sm text-slate-500">Completed Experiments</div>
+          <div className="text-3xl font-bold text-blue-600">{summary.total}</div>
+          <div className="text-sm text-slate-500">Total Experiments</div>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
-          <div className="text-3xl font-bold text-emerald-600">{runningExps.length}</div>
-          <div className="text-sm text-slate-500">Running Experiments</div>
+          <div className="text-3xl font-bold text-emerald-600">{summary.completed}</div>
+          <div className="text-sm text-slate-500">Completed</div>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
-          <div className="text-3xl font-bold text-amber-600">{insights.filter((i) => i.severity === "warning").length}</div>
-          <div className="text-sm text-slate-500">Action Items</div>
+          <div className="text-3xl font-bold text-amber-600">{summary.running}</div>
+          <div className="text-sm text-slate-500">Running</div>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
+          <div className="text-3xl font-bold text-violet-600">{summary.significant}</div>
+          <div className="text-sm text-slate-500">Significant Results</div>
         </div>
       </div>
 
+      {/* Insights List */}
       <div className="space-y-3">
-        {insights.map((ins, i) => {
-          const Icon = ins.icon || Info
+        {insights.map((ins: any, i: number) => {
+          const config = severityConfig[ins.severity] || severityConfig.info
+          const Icon = config.Icon
           return (
-            <div key={i} className={`p-5 rounded-xl border ${
-              ins.severity === "positive" ? "bg-emerald-50 border-emerald-200" :
-              ins.severity === "warning" ? "bg-amber-50 border-amber-200" :
-              ins.severity === "critical" ? "bg-red-50 border-red-200" :
-              "bg-white border-slate-200"
-            }`}>
+            <div
+              key={i}
+              className={`p-5 rounded-xl border ${config.bg} ${config.border}`}
+            >
               <div className="flex items-start gap-3">
-                <Icon className={`w-5 h-5 mt-0.5 ${
-                  ins.severity === "positive" ? "text-emerald-600" :
-                  ins.severity === "warning" ? "text-amber-600" :
-                  ins.severity === "critical" ? "text-red-600" :
-                  "text-blue-600"
-                }`} />
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-900">{ins.title}</h3>
+                <Icon className={`w-5 h-5 mt-0.5 ${config.iconColor}`} />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900">{ins.title}</h3>
+                    {ins.experiment_name && (
+                      <button
+                        onClick={() => navigate(`/experiments/${ins.experiment_id}`)}
+                        className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                      >
+                        <FlaskConical className="w-3 h-3" />
+                        {ins.experiment_name}
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-600 mt-1">{ins.description}</p>
                   {ins.recommendation && (
                     <p className="text-xs text-slate-500 mt-2 italic">→ {ins.recommendation}</p>
@@ -140,7 +103,8 @@ export function InsightsPage() {
         {insights.length === 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
             <Lightbulb className="w-10 h-10 mx-auto text-slate-300 mb-3" />
-            <p className="text-slate-500">No insights available. Create experiments and run analysis to see insights.</p>
+            <p className="text-slate-500 font-medium">No insights yet</p>
+            <p className="text-slate-400 text-sm mt-1">Create experiments, upload datasets, and run analysis to see data-driven insights.</p>
           </div>
         )}
       </div>

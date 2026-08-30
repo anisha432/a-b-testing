@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "../hooks/useAuth"
 import { Beaker, Eye, EyeOff } from "lucide-react"
 
@@ -81,7 +81,14 @@ export function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 p-3 bg-slate-50 rounded-lg text-xs text-slate-500 text-center">
+          <div className="mt-6 text-center text-sm text-slate-500">
+            Don&apos;t have an account?{" "}
+            <Link to="/register" className="text-blue-600 hover:text-blue-700 font-medium">
+              Create account
+            </Link>
+          </div>
+
+          <div className="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-slate-500 text-center">
             Demo: admin@experimentiq.com / admin123
           </div>
         </div>

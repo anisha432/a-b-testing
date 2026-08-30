@@ -24,7 +24,8 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
-    user = db.query(User).filter(User.id == token_data.get("sub")).first()
+    sub = token_data.get("sub")
+    user = db.query(User).filter(User.id == int(sub)).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user

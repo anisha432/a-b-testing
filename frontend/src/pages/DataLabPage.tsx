@@ -1,12 +1,16 @@
 import { useState, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate } from "react-router-dom"
 import { datasetsApi } from "../services/api"
-import { formatNumber } from "../lib/utils"
-import { Database, Upload, Eye, BarChart3, Trash2, ChevronLeft, ChevronRight } from "lucide-react"
+import { useAnalysisContext } from "../contexts/AnalysisContext"
+import { formatNumber, formatDate } from "../lib/utils"
+import { Database, Upload, Eye, BarChart3, Trash2, ChevronLeft, ChevronRight, FlaskConical, Play, CheckCircle2, Clock, Loader2 } from "lucide-react"
 
 export function DataLabPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const { activateDataset, activeDatasetId, hasContext } = useAnalysisContext()
   const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null)
   const [view, setView] = useState<"list" | "preview" | "quality" | "mapping">("list")
   const [previewPage, setPreviewPage] = useState(1)
@@ -43,6 +47,15 @@ export function DataLabPage() {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => datasetsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["datasets"] })
+      setSelectedDatasetId(null)
+      setView("list")
+    },
+  })
+
   const mappingMutation = useMutation({
     mutationFn: ({ id, mappings }: { id: number; mappings: Record<string, string> }) => datasetsApi.updateMapping(id, mappings),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dataset"] }),
@@ -53,12 +66,24 @@ export function DataLabPage() {
     if (file) uploadMutation.mutate(file)
   }
 
+  const handleUseForAnalysis = (ds: any) => {
+    activateDataset(ds.id, ds.experiment_id)
+    navigate("/analytics")
+  }
+
+  const allDatasets = datasets || []
+  const hasDatasets = allDatasets.length > 0
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Data Lab</h1>
-          <p className="text-slate-500 text-sm mt-1">Upload, validate, and prepare experiment datasets</p>
+          <p className="text-slate-500 text-sm mt-1">
+            {hasContext
+              ? "Current analysis context is active. Select a different dataset below to switch."
+              : "Manage and prepare datasets for your experiments. Select a dataset to make it your active analysis context."}
+          </p>
         </div>
         <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">
           <Upload className="w-4 h-4" />
@@ -68,34 +93,79 @@ export function DataLabPage() {
       </div>
 
       {uploadMutation.isPending && (
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700 animate-pulse">Uploading dataset...</div>
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700 animate-pulse flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Uploading dataset...
+        </div>
+      )}
+
+      {uploadMutation.isError && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+          Upload failed: {(uploadMutation.error as Error)?.message}
+        </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Dataset List */}
+        {/* Dataset List — History */}
         <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <h3 className="text-sm font-semibold text-slate-900 mb-3">Datasets</h3>
+          <h3 className="text-sm font-semibold text-slate-900 mb-3">
+            Dataset History
+            {hasDatasets && <span className="ml-2 text-xs font-normal text-slate-400">{allDatasets.length} dataset(s)</span>}
+          </h3>
           <div className="space-y-2">
             {isLoading ? (
-              [...Array(3)].map((_, i) => <div key={i} className="h-16 bg-slate-50 rounded-lg animate-pulse" />)
-            ) : datasets?.length > 0 ? (
-              datasets.map((ds: any) => (
-                <button
-                  key={ds.id}
-                  onClick={() => { setSelectedDatasetId(ds.id); setView("preview") }}
-                  className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                    selectedDatasetId === ds.id ? "border-blue-500 bg-blue-50" : "border-slate-100 hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="text-sm font-medium text-slate-900 truncate">{ds.original_filename}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">{formatNumber(ds.row_count)} rows × {ds.column_count} cols</div>
-                  {ds.quality_score != null && (
-                    <div className={`text-xs font-medium mt-1 ${ds.quality_score >= 80 ? "text-emerald-600" : ds.quality_score >= 60 ? "text-amber-600" : "text-red-600"}`}>
-                      Quality: {ds.quality_score}/100
+              [...Array(3)].map((_, i) => <div key={i} className="h-20 bg-slate-50 rounded-lg animate-pulse" />)
+            ) : hasDatasets ? (
+              allDatasets.map((ds: any) => {
+                const isActive = activeDatasetId === ds.id
+                return (
+                  <button
+                    key={ds.id}
+                    onClick={() => { setSelectedDatasetId(ds.id); setView("preview") }}
+                    className={`w-full text-left p-3 rounded-lg border transition-colors relative ${
+                      isActive
+                        ? "border-blue-500 bg-blue-50 ring-1 ring-blue-200"
+                        : selectedDatasetId === ds.id
+                        ? "border-blue-300 bg-blue-50/50"
+                        : "border-slate-100 hover:bg-slate-50"
+                    }`}
+                  >
+                    {isActive && (
+                      <div className="absolute top-2 right-2">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-600 text-white text-[10px] font-medium rounded">
+                          <CheckCircle2 className="w-2.5 h-2.5" /> Active
+                        </span>
+                      </div>
+                    )}
+                    <div className="text-sm font-medium text-slate-900 truncate pr-16">{ds.original_filename}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{formatNumber(ds.row_count)} rows x {ds.column_count} cols</div>
+                    {ds.quality_score != null && (
+                      <div className={`text-xs font-medium mt-1 ${ds.quality_score >= 80 ? "text-emerald-600" : ds.quality_score >= 60 ? "text-amber-600" : "text-red-600"}`}>
+                        Quality: {ds.quality_score}/100
+                      </div>
+                    )}
+                    {ds.experiment_id ? (
+                      <div className="flex items-center gap-1 text-xs text-blue-600 mt-1">
+                        <FlaskConical className="w-3 h-3" />
+                        <span>Experiment #{ds.experiment_id}</span>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-400 mt-1">Not attached to experiment</div>
+                    )}
+                    <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                      <Clock className="w-2.5 h-2.5" />
+                      {formatDate(ds.created_at)}
                     </div>
-                  )}
-                </button>
-              ))
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleUseForAnalysis(ds) }}
+                      className="mt-2 w-full px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded flex items-center justify-center gap-1"
+                    >
+                      <Play className="w-3 h-3" />
+                      {isActive ? "Currently Active" : "Use for Analysis"}
+                    </button>
+                  </button>
+                )
+              })
             ) : (
               <div className="text-center py-8 text-slate-400 text-sm">
                 <Database className="w-8 h-8 mx-auto mb-2 text-slate-300" />
@@ -110,17 +180,36 @@ export function DataLabPage() {
           {selectedDatasetId && (
             <>
               {/* View Tabs */}
-              <div className="flex gap-2 border-b border-slate-200 pb-2">
-                {[
-                  { id: "preview", label: "Preview", icon: Eye },
-                  { id: "quality", label: "Data Quality", icon: BarChart3 },
-                  { id: "mapping", label: "Column Mapping", icon: Database },
-                ].map((tab) => (
-                  <button key={tab.id} onClick={() => setView(tab.id as any)} className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg ${view === tab.id ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50"}`}>
-                    <tab.icon className="w-3.5 h-3.5" />
-                    {tab.label}
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                <div className="flex gap-2">
+                  {[
+                    { id: "preview", label: "Preview", icon: Eye },
+                    { id: "quality", label: "Data Quality", icon: BarChart3 },
+                    { id: "mapping", label: "Column Mapping", icon: Database },
+                  ].map((tab) => (
+                    <button key={tab.id} onClick={() => setView(tab.id as any)} className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg ${view === tab.id ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50"}`}>
+                      <tab.icon className="w-3.5 h-3.5" />
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeDatasetId !== selectedDatasetId && datasetDetail?.experiment_id && (
+                    <button
+                      onClick={() => handleUseForAnalysis(datasetDetail)}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg"
+                    >
+                      <Play className="w-3 h-3" /> Use for Analysis
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { if (confirm("Delete this dataset? This cannot be undone.")) deleteMutation.mutate(selectedDatasetId) }}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete
                   </button>
-                ))}
+                </div>
               </div>
 
               {/* Preview */}
@@ -164,7 +253,6 @@ export function DataLabPage() {
                     <div className="bg-white rounded-xl border p-12 text-center animate-pulse text-slate-400">Analyzing data quality...</div>
                   ) : quality ? (
                     <>
-                      {/* Quality Score */}
                       <div className="bg-white rounded-xl border border-slate-200 p-6">
                         <div className="flex items-center gap-6">
                           <div className="text-center">
@@ -189,7 +277,6 @@ export function DataLabPage() {
                         </div>
                       </div>
 
-                      {/* Warnings */}
                       {quality.warnings?.length > 0 && (
                         <div className="bg-white rounded-xl border border-slate-200 p-5">
                           <h3 className="text-sm font-semibold text-slate-900 mb-3">Warnings</h3>
@@ -204,7 +291,6 @@ export function DataLabPage() {
                         </div>
                       )}
 
-                      {/* Recommendations */}
                       {quality.recommendations?.length > 0 && (
                         <div className="bg-white rounded-xl border border-slate-200 p-5">
                           <h3 className="text-sm font-semibold text-slate-900 mb-3">Recommendations</h3>
@@ -280,7 +366,7 @@ export function DataLabPage() {
             <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
               <Database className="w-12 h-12 mx-auto text-slate-300 mb-3" />
               <h3 className="text-lg font-medium text-slate-900 mb-1">No dataset selected</h3>
-              <p className="text-sm text-slate-500">Upload a CSV file or select an existing dataset</p>
+              <p className="text-sm text-slate-500">Select a dataset from the history panel or upload a new one.</p>
             </div>
           )}
         </div>

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Outlet, NavLink, useLocation } from "react-router-dom"
 import { useAuth } from "../hooks/useAuth"
+import { ActiveContextBar } from "../components/ActiveContextBar"
 import {
   LayoutDashboard, FlaskConical, Plus, Database, BarChart3,
   Users, TrendingUp, Lightbulb, Monitor, FileText, Settings,
@@ -122,6 +123,9 @@ export function AppLayout() {
             </div>
           </div>
         </header>
+
+        {/* Active Analysis Context */}
+        <ActiveContextBar />
 
         {/* Page Content */}
         <main className="flex-1 overflow-y-auto p-6">

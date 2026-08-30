@@ -1,22 +1,21 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { reportsApi, experimentsApi } from "../services/api"
+import { useNavigate } from "react-router-dom"
+import { reportsApi } from "../services/api"
+import { useAnalysisContext } from "../contexts/AnalysisContext"
 import { formatDate } from "../lib/utils"
-import { FileText, Download, Plus, Trash2 } from "lucide-react"
+import { FileText, Download, Plus, Trash2, Loader2, Database, ArrowRight } from "lucide-react"
 
 export function ReportsPage() {
   const queryClient = useQueryClient()
-  const [selectedExpId, setSelectedExpId] = useState<number | null>(null)
+  const navigate = useNavigate()
+  const { activeExperimentId, activeDataset, activeExperiment, hasContext, hasDataset, hasExperiment } = useAnalysisContext()
   const [title, setTitle] = useState("")
+  const [downloadingId, setDownloadingId] = useState<number | null>(null)
 
   const { data: reports, isLoading } = useQuery({
     queryKey: ["reports"],
     queryFn: () => reportsApi.list(),
-  })
-
-  const { data: experiments } = useQuery({
-    queryKey: ["experiments"],
-    queryFn: () => experimentsApi.list({ page_size: "50" }),
   })
 
   const generateMutation = useMutation({
@@ -30,9 +29,20 @@ export function ReportsPage() {
   })
 
   const handleGenerate = () => {
-    if (!selectedExpId || !title.trim()) return
-    generateMutation.mutate({ experiment_id: selectedExpId, title: title.trim() })
+    if (!activeExperimentId || !title.trim()) return
+    generateMutation.mutate({ experiment_id: activeExperimentId, title: title.trim() })
     setTitle("")
+  }
+
+  const handleDownload = async (report: any) => {
+    setDownloadingId(report.id)
+    try {
+      await reportsApi.download(report.id, `${report.title.replace(/\s+/g, "_")}.pdf`)
+    } catch (err) {
+      console.error("Download failed:", err)
+    } finally {
+      setDownloadingId(null)
+    }
   }
 
   return (
@@ -43,27 +53,67 @@ export function ReportsPage() {
       </div>
 
       {/* Generate Form */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <h3 className="text-sm font-semibold text-slate-900 mb-4">Generate New Report</h3>
-        <div className="flex items-end gap-4">
-          <div className="flex-1">
-            <label className="block text-xs font-medium text-slate-500 mb-1">Experiment</label>
-            <select value={selectedExpId || ""} onChange={(e) => setSelectedExpId(Number(e.target.value))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-              <option value="">Select experiment...</option>
-              {experiments?.experiments?.map((exp: any) => <option key={exp.id} value={exp.id}>{exp.name}</option>)}
-            </select>
+      {hasContext && hasExperiment ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <h3 className="text-sm font-semibold text-slate-900 mb-4">Generate New Report</h3>
+          <div className="flex items-end gap-4">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">Experiment</label>
+              <div className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 text-slate-700">
+                {activeExperiment?.name || `Experiment #${activeExperimentId}`}
+              </div>
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">Report Title</label>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                placeholder="e.g., Checkout Flow Report"
+              />
+            </div>
+            <button
+              onClick={handleGenerate}
+              disabled={!title.trim() || generateMutation.isPending}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium flex items-center gap-2"
+            >
+              {generateMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
+              ) : (
+                <><Plus className="w-4 h-4" /> Generate</>
+              )}
+            </button>
           </div>
-          <div className="flex-1">
-            <label className="block text-xs font-medium text-slate-500 mb-1">Report Title</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="e.g., Checkout Flow Report" />
-          </div>
-          <button onClick={handleGenerate} disabled={!selectedExpId || !title.trim() || generateMutation.isPending} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            {generateMutation.isPending ? "Generating..." : "Generate"}
+          {generateMutation.isError && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+              {(generateMutation.error as Error)?.message}
+            </div>
+          )}
+          {generateMutation.isSuccess && (
+            <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">
+              Report generated successfully! Click Download to save the PDF.
+            </div>
+          )}
+        </div>
+      ) : !hasContext ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+          <Database className="w-10 h-10 mx-auto text-slate-300 mb-3" />
+          <p className="text-slate-500 font-medium">No active analysis context</p>
+          <p className="text-slate-400 text-sm mt-1 mb-4">Select a dataset to generate reports for.</p>
+          <button onClick={() => navigate("/data-lab")} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg flex items-center gap-2 mx-auto">
+            Go to Data Lab <ArrowRight className="w-4 h-4" />
           </button>
         </div>
-        {generateMutation.isError && <div className="mt-2 text-sm text-red-600">{(generateMutation.error as Error)?.message}</div>}
-      </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+          <Database className="w-10 h-10 mx-auto text-amber-400 mb-3" />
+          <p className="text-slate-500 font-medium">No experiment attached to this dataset</p>
+          <p className="text-slate-400 text-sm mt-1 mb-4">Attach this dataset to an experiment to generate reports.</p>
+          <button onClick={() => navigate("/experiments")} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg flex items-center gap-2 mx-auto">
+            Go to Experiments <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Reports Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -80,7 +130,11 @@ export function ReportsPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              [...Array(3)].map((_, i) => <tr key={i}><td colSpan={6} className="px-5 py-4"><div className="h-4 bg-slate-100 rounded animate-pulse" /></td></tr>)
+              [...Array(3)].map((_, i) => (
+                <tr key={i}>
+                  <td colSpan={6} className="px-5 py-4"><div className="h-4 bg-slate-100 rounded animate-pulse" /></td>
+                </tr>
+              ))
             ) : reports?.length > 0 ? (
               reports.map((report: any) => (
                 <tr key={report.id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -106,11 +160,19 @@ export function ReportsPage() {
                   <td className="px-5 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       {report.status === "completed" && (
-                        <a href={reportsApi.downloadUrl(report.id)} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded text-xs font-medium">
-                          <Download className="w-3 h-3" /> Download
-                        </a>
+                        <button
+                          onClick={() => handleDownload(report)}
+                          disabled={downloadingId === report.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded text-xs font-medium disabled:opacity-50"
+                        >
+                          {downloadingId === report.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                          Download
+                        </button>
                       )}
-                      <button onClick={() => { if (confirm("Delete this report?")) deleteMutation.mutate(report.id) }} className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded">
+                      <button
+                        onClick={() => { if (confirm("Delete this report?")) deleteMutation.mutate(report.id) }}
+                        className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded"
+                      >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -118,10 +180,13 @@ export function ReportsPage() {
                 </tr>
               ))
             ) : (
-              <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-400">
-                <FileText className="w-10 h-10 mx-auto mb-3 text-slate-300" />
-                <p className="text-sm">No reports yet. Generate a report for any experiment.</p>
-              </td></tr>
+              <tr>
+                <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
+                  <FileText className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm font-medium">No reports yet</p>
+                  <p className="text-xs text-slate-400 mt-1">Select a dataset and generate a report.</p>
+                </td>
+              </tr>
             )}
           </tbody>
         </table>

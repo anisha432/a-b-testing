@@ -62,7 +62,7 @@ def analyze_conversion(
     # MDE
     mde = _calculate_mde(control_total, treatment_total, cr_control, confidence_level, 0.8)
 
-    is_significant = p_value < (1 - confidence_level)
+    is_significant = bool(p_value < (1 - confidence_level))
 
     test_explanation = (
         f"Two-proportion z-test was used because the metric '{cr_control:.4f}' is a "
@@ -92,7 +92,7 @@ def analyze_conversion(
         "mde": round(mde * 100, 2) if mde else None,
         "test_used": "z-test (two-proportion)",
         "test_explanation": test_explanation,
-        "is_significant": is_significant,
+        "is_significant": bool(is_significant),
     }
 
 
@@ -238,7 +238,7 @@ def detect_srm(
     else:
         chi2, p_value = stats.chisquare(observed, f_exp=expected)
 
-    has_srm = p_value < 0.05
+    has_srm = bool(p_value < 0.05)
 
     if p_value < 0.001:
         severity = "critical"

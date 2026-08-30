@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "react-router-dom"
 import { analyticsApi } from "../services/api"
 import { formatNumber, formatPercent, formatDate, getStatusColor } from "../lib/utils"
+import { toLowerCase, capitalize } from "../lib/safe"
 import { FlaskConical, CheckCircle2, TrendingUp, Zap, DollarSign, ArrowUpRight, ArrowDownRight } from "lucide-react"
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts"
 
@@ -44,7 +46,12 @@ export function OverviewPage() {
   const topExps = overview?.top_experiments || []
   const activities = overview?.recent_activities || []
 
-  const pieData = Object.entries(statusDist).map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value: value as number }))
+  const pieData = Object.entries(statusDist)
+    .filter(([name]) => typeof name === "string" && name.length > 0)
+    .map(([name, value]) => ({
+      name: capitalize(name),
+      value: typeof value === "number" ? value : Number(value) || 0,
+    }))
 
   const kpiCards = [
     { label: "Active Experiments", value: stats.active_experiments, icon: FlaskConical, color: "text-blue-600", bg: "bg-blue-50" },
@@ -59,6 +66,15 @@ export function OverviewPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Overview</h1>
         <p className="text-slate-500 text-sm mt-1">Experimentation intelligence at a glance</p>
+        {overview?.total_experiments === 0 && (
+          <div className="mt-4 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
+            <h3 className="text-sm font-semibold text-blue-900">Welcome to ExperimentIQ</h3>
+            <p className="text-xs text-blue-700 mt-1">Get started by creating your first experiment.</p>
+            <Link to="/experiments/new" className="inline-flex items-center gap-1 mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg">
+              Create Experiment →
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* KPI Cards */}
@@ -87,7 +103,7 @@ export function OverviewPage() {
                 <PieChart>
                   <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
                     {pieData.map((entry) => (
-                      <Cell key={entry.name} fill={STATUS_COLORS[entry.name.toLowerCase()] || "#94a3b8"} />
+                      <Cell key={entry.name} fill={STATUS_COLORS[toLowerCase(entry.name)] || "#94a3b8"} />
                     ))}
                   </Pie>
                   <Tooltip />
@@ -100,7 +116,7 @@ export function OverviewPage() {
           <div className="flex flex-wrap gap-3 mt-2 justify-center">
             {pieData.map((d) => (
               <div key={d.name} className="flex items-center gap-1.5 text-xs text-slate-600">
-                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[d.name.toLowerCase()] || "#94a3b8" }} />
+                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[toLowerCase(d.name)] || "#94a3b8" }} />
                 {d.name} ({d.value})
               </div>
             ))}
