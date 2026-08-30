@@ -1,0 +1,82 @@
+# ExperimentIQ Production Docker Compose
+# Usage: docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# This file is for self-hosted VPS deployment (DigitalOcean, Hetzner, AWS EC2, etc.)
+# For managed platforms (Railway, Render, Fly.io) — use their native deployment instead.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-experimentiq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:-experimentiq}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-experimentiq}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # Do NOT expose port 5432 in production — only accessible via internal Docker network
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.production}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in .env.production}
+      APP_ENV: production
+      PORT: 8000
+    volumes:
+      - uploads:/app/app/uploads
+      - reports:/app/app/reports
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - internal
+
+  # Optional: reverse proxy with SSL (uncomment if not using an external load balancer)
+  # Requires adding your domain and SSL certificates
+  # nginx-proxy:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx-prod.conf:/etc/nginx/nginx.conf:ro
+  #     - ./certs:/etc/nginx/certs:ro
+  #   depends_on:
+  #     - frontend
+  #     - backend
+  #   restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:
+  reports:
+
+networks:
+  internal:
+    driver: bridge

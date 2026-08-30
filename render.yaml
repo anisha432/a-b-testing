@@ -1,0 +1,44 @@
+# ExperimentIQ Render Blueprint
+# This file auto-configures both services on Render when you deploy from the repo root.
+# Usage: In Render dashboard, create from Blueprint → select this repo.
+
+services:
+  # ── Backend (FastAPI) ──────────────────────────────────────
+  - type: web
+    name: experimentiq-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: experimentiq-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true          # Auto-generates a secure secret
+      - key: CORS_ORIGINS
+        value: https://a-b-testing-1.onrender.com   # ← UPDATE if frontend URL changes
+      - key: APP_ENV
+        value: production
+      - key: PORT
+        value: 8000
+      - key: WORKERS
+        value: "2"
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+  # ── Database (PostgreSQL) ──────────────────────────────────
+  - type: pgsql
+    name: experimentiq-db
+    plan: free                         # Upgrade to paid for production
+    databaseName: experimentiq
+    user: experimentiq
+
+  # ── Frontend (React/Vite) ──────────────────────────────────
+  - type: web
+    name: experimentiq-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    envVars:
+      - key: VITE_API_URL
+        value: https://a-b-testing-6vw2.onrender.com  # ← UPDATE if backend URL changes
+    autoDeploy: true

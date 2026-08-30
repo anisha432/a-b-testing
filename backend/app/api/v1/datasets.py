@@ -28,8 +28,11 @@ async def upload_dataset(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not file.filename or not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only CSV files are supported")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    ext = file.filename.lower().rsplit(".", 1)[-1] if "." in file.filename else ""
+    if ext not in ("csv", "xlsx", "xls"):
+        raise HTTPException(status_code=400, detail="Only CSV and Excel (.xlsx) files are supported")
 
     content = await file.read()
     file_size = len(content)
@@ -43,10 +46,13 @@ async def upload_dataset(
         f.write(content)
 
     try:
-        df = pd.read_csv(file_path)
+        if ext == "csv":
+            df = pd.read_csv(file_path)
+        else:
+            df = pd.read_excel(file_path)
     except Exception as e:
         os.remove(file_path)
-        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
 
     dataset = Dataset(
         experiment_id=experiment_id,

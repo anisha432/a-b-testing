@@ -347,7 +347,7 @@ export function ExperimentDetailPage() {
             <Database className="w-10 h-10 mx-auto text-slate-300 mb-3" />
             <h3 className="text-sm font-semibold text-slate-900 mb-1">No dataset attached</h3>
             <p className="text-xs text-slate-500 mb-4 max-w-sm mx-auto">
-              Attach experiment data to begin your analysis. Upload a CSV file directly or select an existing dataset from Data Lab.
+              Attach experiment data to begin your analysis. Upload a CSV or Excel (.xlsx) file directly or select an existing dataset from Data Lab.
             </p>
             <div className="flex items-center justify-center gap-3">
               <button
@@ -386,14 +386,14 @@ export function ExperimentDetailPage() {
               onDrop={(e) => {
                 e.preventDefault()
                 const file = e.dataTransfer.files?.[0]
-                if (file && file.name.endsWith(".csv")) uploadMutation.mutate(file)
+                if (file && /\.(csv|xlsx|xls)$/i.test(file.name)) uploadMutation.mutate(file)
               }}
             >
               <Upload className="w-10 h-10 mx-auto text-slate-300 mb-3" />
-              <p className="text-sm font-medium text-slate-700">Drop CSV file here or click to browse</p>
-              <p className="text-xs text-slate-400 mt-1">Supports CSV files up to 100 MB</p>
+              <p className="text-sm font-medium text-slate-700">Drop file here or click to browse</p>
+              <p className="text-xs text-slate-400 mt-1">Supports CSV and Excel (.xlsx) up to 100 MB</p>
             </div>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileUpload} />
             {uploadMutation.isPending && (
               <div className="mt-4 flex items-center gap-3 p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
                 <Loader2 className="w-4 h-4 animate-spin" />

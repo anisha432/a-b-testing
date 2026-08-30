@@ -278,8 +278,11 @@ async def upload_dataset_to_experiment(
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
-    if not file.filename or not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only CSV files are supported")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    ext = file.filename.lower().rsplit(".", 1)[-1] if "." in file.filename else ""
+    if ext not in ("csv", "xlsx", "xls"):
+        raise HTTPException(status_code=400, detail="Only CSV and Excel (.xlsx) files are supported")
 
     content = await file.read()
     file_size = len(content)
@@ -293,12 +296,15 @@ async def upload_dataset_to_experiment(
     with open(file_path, "wb") as f:
         f.write(content)
 
-    # Parse CSV
+    # Parse file
     try:
-        df = pd.read_csv(file_path)
+        if ext == "csv":
+            df = pd.read_csv(file_path)
+        else:
+            df = pd.read_excel(file_path)
     except Exception:
         os.remove(file_path)
-        raise HTTPException(status_code=400, detail="Failed to parse CSV")
+        raise HTTPException(status_code=400, detail="Failed to parse file. Please check the file format.")
 
     # Create dataset record attached to experiment
     dataset = Dataset(

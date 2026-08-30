@@ -19,6 +19,7 @@ bcrypt==4.2.1
 
 ## Analytics & Data Science
 pandas==2.2.3
+openpyxl==3.1.5
 numpy==2.2.1
 scipy==1.15.0
 statsmodels==0.14.4

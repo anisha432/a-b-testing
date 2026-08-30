@@ -8,7 +8,12 @@ async function request(path: string, options: RequestInit = {}) {
   if (token) headers["Authorization"] = `Bearer ${token}`
   if (!(options.body instanceof FormData)) headers["Content-Type"] = "application/json"
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers }).catch((err) => {
+    if (err instanceof TypeError && err.message === "Failed to fetch") {
+      throw new Error("Unable to connect to the server. The server may be starting up — please try again in a few seconds.")
+    }
+    throw err
+  })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Request failed" }))
     throw new Error(err.detail || `HTTP ${res.status}`)
@@ -48,6 +53,11 @@ export const experimentsApi = {
     }).then((r) => {
       if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || "Upload failed") })
       return r.json()
+    }).catch((err) => {
+      if (err instanceof TypeError && err.message === "Failed to fetch") {
+        throw new Error("Unable to connect to the server. The server may be starting up — please try again in a few seconds.")
+      }
+      throw err
     })
   },
   attachDataset: (experimentId: number, datasetId: number) =>
@@ -74,6 +84,11 @@ export const datasetsApi = {
     }).then((r) => {
       if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || "Upload failed") })
       return r.json()
+    }).catch((err) => {
+      if (err instanceof TypeError && err.message === "Failed to fetch") {
+        throw new Error("Unable to connect to the server. The server may be starting up — please try again in a few seconds.")
+      }
+      throw err
     })
   },
   preview: (id: number, page = 1, pageSize = 50) => request(`/api/v1/datasets/${id}/preview?page=${page}&page_size=${pageSize}`),

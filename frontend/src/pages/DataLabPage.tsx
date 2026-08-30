@@ -87,9 +87,9 @@ export function DataLabPage() {
         </div>
         <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">
           <Upload className="w-4 h-4" />
-          Upload CSV
+          Upload Dataset
         </button>
-        <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleUpload} />
+        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleUpload} />
       </div>
 
       {uploadMutation.isPending && (
